@@ -14,21 +14,34 @@ using Bucket.DbContext;
 using Bucket.Config.Extensions;
 using Bucket.ErrorCode.Extensions;
 using Bucket.EventBus.Extensions;
-using Bucket.EventBus.RabbitMQ;
+using Bucket.EventBus.RabbitMQ.Extensions;
 using Bucket.AspNetCore.Filters;
 using Bucket.AspNetCore.Extensions;
 using Bucket.ServiceDiscovery.Extensions;
-using Bucket.ServiceDiscovery.Consul;
-using Bucket.Tracing.Extensions;
+using Bucket.ServiceDiscovery.Consul.Extensions;
 using Bucket.Logging.Events;
-using Bucket.Tracing.Events;
+using Bucket.Authorize;
 using Autofac;
 using Autofac.Extensions.DependencyInjection;
+using Bucket.Authorize.MySql;
+using Bucket.SkrTrace.DependencyInjection;
+using Bucket.SkrTrace.Diagnostics.AspNetCore;
+using Bucket.SkrTrace.Diagnostics.HttpClient;
+using Bucket.SkrTrace.Transport.EventBus;
+using Bucket.Listener.Extensions;
+using Bucket.Listener.Zookeeper;
+using Bucket.Authorize.Listener;
+using Bucket.Authorize.HostedService;
+using Bucket.Config.Listener;
+using Bucket.Config.HostedService;
+using Bucket.ErrorCode.Listener;
+using Bucket.ErrorCode.HostedService;
+using Bucket.HostedService.AspNetCore;
 
 namespace Bucket.MVC
 {
     /// <summary>
-    /// 
+    /// 启动
     /// </summary>
     public class Startup
     {
@@ -53,8 +66,9 @@ namespace Bucket.MVC
         /// </summary>
         public IServiceProvider ConfigureServices(IServiceCollection services)
         {
-            // 添加授权认证
-            services.AddApiJwtAuthorize(Configuration, (context) => { return true; });
+            //services.AddTokenJwtAuthorize(Configuration);
+            // 添加授权认证, return true;标识不验证角色等
+            services.AddApiJwtAuthorize(Configuration).UseAuthoriser(services, builder => { builder.UseMySqlAuthorize(); });
             // 添加基础设施服务
             services.AddBucket();
             // 添加数据ORM
@@ -67,22 +81,17 @@ namespace Bucket.MVC
             // 添加错误码服务
             services.AddErrorCodeServer(Configuration);
             // 添加配置服务
-            services.AddConfigService(Configuration);
+            services.AddConfigServer(Configuration);
             // 添加事件驱动
-            services.AddEventBus(builder =>{ builder.UseRabbitMQ(Configuration); });
+            services.AddEventBus(builder => { builder.UseRabbitMQ(); });
             // 添加服务发现
             services.AddServiceDiscovery(builder => {
-                builder.UseConsul(Configuration);
+                builder.UseConsul();
             });
             // 添加链路追踪
-            services.AddTracer(Configuration);
-            services.AddEventTrace();
+            services.AddSkrTrace().AddAspNetCoreHosting().AddHttpClient().AddEventBusTransport();
             // 添加过滤器, 模型过滤器,追踪过滤器
-            services.AddMvc(options =>
-            {
-                options.Filters.Add(typeof(WebApiTracingFilterAttribute));
-                options.Filters.Add(typeof(WebApiActionFilterAttribute));
-            }).AddJsonOptions(options =>
+            services.AddMvc(options => { options.Filters.Add(typeof(WebApiActionFilterAttribute)); }).AddJsonOptions(options =>
             {
                 options.SerializerSettings.ContractResolver = new DefaultContractResolver();
                 options.SerializerSettings.DateFormatString = "yyyy-MM-dd HH:mm:ss.fff";
@@ -96,7 +105,15 @@ namespace Bucket.MVC
                 c.IncludeXmlComments(Path.Combine(AppContext.BaseDirectory, "Bucket.MVC.xml"));
             });
             services.AddHttpClient();
-
+            // 添加应用监听
+            services.AddListener(builder => {
+                //builder.UseRedis();
+                builder.UseZookeeper();
+                builder.AddAuthorize().AddConfig().AddErrorCode();
+            });
+            services.AddBucketHostedService(builder => {
+                builder.AddAuthorize().AddConfig().AddErrorCode();
+            });
             // 添加autofac容器替换，默认容器注册方式缺少功能
             var autofac_builder = new ContainerBuilder();
             autofac_builder.Populate(services);
@@ -132,8 +149,6 @@ namespace Bucket.MVC
         {
             // 全局错误日志
             app.UseErrorLog();
-            // 认证授权
-            // app.UseAuthentication();
             // 静态文件
             app.UseStaticFiles();
             // 路由

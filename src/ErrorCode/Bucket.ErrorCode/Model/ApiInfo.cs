@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Bucket.ErrorCode.Model
+namespace Bucket.ErrorCode
 {
     public class ApiInfo
     {
@@ -11,5 +11,6 @@ namespace Bucket.ErrorCode.Model
     {
         public string ErrorCode { get; set; }
         public string ErrorMessage { get; set; }
+        public string Target { get; set; }
     }
 }

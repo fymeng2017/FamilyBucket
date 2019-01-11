@@ -2,6 +2,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using System;
+using System.Linq;
+using Bucket.Config.Abstractions;
+using Bucket.Config.Implementation;
 
 namespace Bucket.Config.Extensions
 {
@@ -13,16 +16,12 @@ namespace Bucket.Config.Extensions
         /// <param name="services"></param>
         /// <param name="configAction"></param>
         /// <returns></returns>
-        public static IServiceCollection AddConfigService(this IServiceCollection services, Action<ConfigOptions> configAction)
+        public static IBucketConfigBuilder AddConfigServer(this IServiceCollection services, Action<BucketConfigOptions> configAction)
         {
             if (configAction == null) throw new ArgumentNullException(nameof(configAction));
+            services.Configure(configAction);
 
-            var configSetting = new ConfigOptions();
-            configAction.Invoke(configSetting);
-
-            AddConfigService(services, configSetting);
-
-            return services;
+            return AddConfigServer(services);
         }
         /// <summary>
         /// 配置中心
@@ -30,16 +29,13 @@ namespace Bucket.Config.Extensions
         /// <param name="services"></param>
         /// <param name="configAction"></param>
         /// <returns></returns>
-        public static IServiceCollection AddConfigService(this IServiceCollection services, IConfiguration configuration)
+        public static IBucketConfigBuilder AddConfigServer(this IServiceCollection services, IConfiguration configuration)
         {
             if (configuration == null) throw new ArgumentNullException(nameof(configuration));
 
-            var configSetting = new ConfigOptions();
-            configuration.GetSection("ConfigService").Bind(configSetting);
+            services.Configure<BucketConfigOptions>(configuration.GetSection("ConfigServer"));
 
-            AddConfigService(services, configSetting);
-
-            return services;
+            return AddConfigServer(services);
         }
         /// <summary>
         /// 配置中心
@@ -47,23 +43,12 @@ namespace Bucket.Config.Extensions
         /// <param name="services"></param>
         /// <param name="configSetting"></param>
         /// <returns></returns>
-        private static IServiceCollection AddConfigService(this IServiceCollection services, ConfigOptions configSetting)
+        private static IBucketConfigBuilder AddConfigServer(this IServiceCollection services)
         {
-            if (configSetting == null) throw new ArgumentNullException(nameof(configSetting));
+            var service = services.First(x => x.ServiceType == typeof(IConfiguration));
+            var configuration = (IConfiguration)service.ImplementationInstance;
 
-            if (configSetting.UseServiceDiscovery)
-            {
-                services.AddSingleton<ConfigServiceLocator>();
-            }
-            else
-            {
-                services.AddSingleton(sp => new ConfigServiceLocator(configSetting, null));
-            }
-            services.AddSingleton(configSetting);
-            services.AddSingleton<RemoteConfigRepository>();
-            services.AddSingleton<IConfig, DefaultConfig>();
-            services.AddHostedService<HttpConfigurationPoller>();
-            return services;
+            return new BucketConfigBuilder(services, configuration);
         }
     }
 }
